@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+jinja2
+numpy
+pandas
+requests
+scipy
+pytest

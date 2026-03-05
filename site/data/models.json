@@ -1,0 +1,81 @@
+{
+  "models": [
+    {
+      "name": "vasicek",
+      "label": "Vasicek",
+      "short_description": "Gaussian mean reversion with closed-form bond pricing.",
+      "notes": "Fast, interpretable, and analytically convenient, but it allows negative rates.",
+      "recommended": true
+    },
+    {
+      "name": "dothan",
+      "label": "Dothan",
+      "short_description": "Positive lognormal short-rate model.",
+      "notes": "Preserves positivity, but is less tractable and tends to fit curves less cleanly.",
+      "recommended": false
+    },
+    {
+      "name": "exp_vasicek",
+      "label": "Exponentiated Vasicek",
+      "short_description": "Mean reversion in log-rates with positive levels.",
+      "notes": "Keeps rates positive and mean reverting, but bond pricing is not affine and is handled numerically here.",
+      "recommended": false
+    },
+    {
+      "name": "cir",
+      "label": "CIR",
+      "short_description": "Positive affine mean-reverting short-rate model.",
+      "notes": "Strong default for positive-rate regimes: mean reverting, analytic, and often stable.",
+      "recommended": true
+    },
+    {
+      "name": "ho_lee",
+      "label": "Ho-Lee",
+      "short_description": "Exact initial-curve fit with Gaussian dynamics.",
+      "notes": "Fits the starting curve exactly, but does not mean revert.",
+      "recommended": false
+    },
+    {
+      "name": "hull_white",
+      "label": "Hull-White",
+      "short_description": "Mean-reverting Gaussian model with exact initial-curve fit.",
+      "notes": "A very practical blend of curve-fit flexibility and analytic tractability.",
+      "recommended": true
+    },
+    {
+      "name": "cir_pp",
+      "label": "CIR++",
+      "short_description": "Deterministic-shift extension of CIR for exact curve fitting.",
+      "notes": "Keeps much of CIR's structure while matching the initial term structure more closely.",
+      "recommended": true
+    },
+    {
+      "name": "hjm",
+      "label": "Gaussian HJM",
+      "short_description": "Forward-curve model with flexible curve dynamics.",
+      "notes": "Flexible and curve-aware, but less parsimonious than classic short-rate models.",
+      "recommended": true
+    }
+  ],
+  "recommended": [
+    "vasicek",
+    "cir",
+    "hull_white",
+    "cir_pp",
+    "hjm"
+  ],
+  "weighting_methods": [
+    {
+      "key": "performance",
+      "label": "Performance-based"
+    },
+    {
+      "key": "curve_fit",
+      "label": "More curve-fit emphasis"
+    },
+    {
+      "key": "forecast",
+      "label": "More forecast emphasis"
+    }
+  ]
+}

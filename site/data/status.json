@@ -1,0 +1,52 @@
+{
+  "supported_sources": [
+    {
+      "key": "treasury",
+      "label": "Treasury curve (official)"
+    },
+    {
+      "key": "sofr",
+      "label": "SOFR (official)"
+    },
+    {
+      "key": "effr",
+      "label": "Fed Funds (official)"
+    },
+    {
+      "key": "auto",
+      "label": "Auto (official then fallback)"
+    }
+  ],
+  "cache_dir": "site/data",
+  "cache_enabled": true,
+  "allow_fred_fallback": true,
+  "cache_summary": {
+    "treasury": {
+      "entries": 9049,
+      "last_updated": "2026-03-05T23:19:00Z"
+    },
+    "newyorkfed": {
+      "entries": 8396,
+      "last_updated": "2026-03-05T23:19:00Z"
+    },
+    "fred": {
+      "entries": 0,
+      "last_updated": null
+    }
+  },
+  "recent_logs": [
+    {
+      "timestamp": "2026-03-05T23:19:00Z",
+      "message": "prefetch: refreshed from official Treasury and New York Fed sources.",
+      "details": {
+        "action": "prefetch.oneoff",
+        "from_cache": false,
+        "fallback_used": false
+      }
+    }
+  ],
+  "last_updated": "2026-03-05T23:19:00Z",
+  "latest_date": "2026-03-05",
+  "fallback_used": false,
+  "mode": "pages_static_json"
+}

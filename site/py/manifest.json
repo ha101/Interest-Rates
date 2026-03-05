@@ -1,0 +1,10 @@
+{
+  "files": [
+    "browser_engine.py",
+    "interest_rate_meta_model/__init__.py",
+    "interest_rate_meta_model/cache.py",
+    "interest_rate_meta_model/curves.py",
+    "interest_rate_meta_model/meta.py",
+    "interest_rate_meta_model/models.py"
+  ]
+}

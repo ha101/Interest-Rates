@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interest Rate Meta Model Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <h1>Interest Rate Meta Model Dashboard</h1>
+        <p>One-click forecasts from the book's interest-rate models, with a readable front end and advanced controls only when you want them.</p>
+      </div>
+      <div class="mode-switch" title="Simple mode keeps only the core workflow visible. Advanced mode unlocks scenarios, diagnostics, cache controls, and calibration knobs.">
+        <label class="toggle-pill">
+          <span>Simple</span>
+          <input id="modeToggle" type="checkbox" />
+          <span class="toggle-slider"></span>
+          <span>Advanced</span>
+        </label>
+      </div>
+    </header>
+
+    <section class="control-bar card">
+      <div class="control-grid">
+        <label>
+          <span>Data source</span>
+          <select id="dataSource" title="Choose the short-rate input. The current curve still comes from Treasury, but the short-rate history can come from Treasury, SOFR, Fed Funds, or auto selection.">
+            <option value="treasury">Treasury curve (official)</option>
+            <option value="sofr">SOFR (official)</option>
+            <option value="effr">Fed Funds (official)</option>
+            <option value="auto" selected>Auto (try official -> FRED fallback)</option>
+          </select>
+        </label>
+
+        <label>
+          <span>As-of date</span>
+          <input id="asOfDate" type="date" title="The dashboard will use the latest available market data on or before this date." />
+        </label>
+
+        <label>
+          <span>Horizon</span>
+          <select id="horizon" title="Forecast horizon for the ensemble prediction.">
+            <option value="1d">1 day</option>
+            <option value="1w">1 week</option>
+            <option value="1m" selected>1 month</option>
+            <option value="3m">3 months</option>
+            <option value="1y">1 year</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Target</span>
+          <select id="target" title="Pick the headline prediction shown on the overview screen.">
+            <option value="short_rate">Short rate</option>
+            <option value="2y">2Y yield</option>
+            <option value="10y" selected>10Y yield</option>
+            <option value="30y">30Y yield</option>
+            <option value="curve">Curve (all tenors)</option>
+          </select>
+        </label>
+
+        <div class="run-box">
+          <button id="runButton" class="primary-button">Run</button>
+          <span id="statusPill" class="status-pill muted">Ready</span>
+        </div>
+      </div>
+
+      <div class="toolbar-row">
+        <button id="shareLinkButton" class="secondary-button">Copy share link</button>
+        <div class="download-group">
+          <button id="downloadToggle" class="secondary-button">Download results</button>
+          <div id="downloadMenu" class="download-menu hidden">
+            <button data-download="predictions.csv">predictions.csv</button>
+            <button data-download="curve_points.csv">curve_points.csv</button>
+            <button data-download="diagnostics.json">diagnostics.json</button>
+          </div>
+        </div>
+        <span class="inline-note">Auto uses official sources first and falls back to FRED only when needed.</span>
+      </div>
+    </section>
+
+    <section id="advancedDrawer" class="card advanced-drawer hidden">
+      <div class="section-header">
+        <h2>Advanced settings</h2>
+        <button id="advancedDrawerToggle" class="link-button">Collapse</button>
+      </div>
+      <div id="advancedDrawerBody" class="advanced-drawer-body">
+        <div class="advanced-grid">
+          <div>
+            <h3>Model selection</h3>
+            <div id="modelChecklist" class="checklist"></div>
+            <label>
+              <span>Auto-weighting method</span>
+              <select id="weightingMethod">
+                <option value="performance">Performance-based (default)</option>
+                <option value="curve_fit">More curve-fit emphasis</option>
+                <option value="forecast">More forecast emphasis</option>
+              </select>
+            </label>
+          </div>
+          <div>
+            <h3>Calibration</h3>
+            <label>
+              <span>History window</span>
+              <select id="historyYears">
+                <option value="2">2 years</option>
+                <option value="5">5 years</option>
+                <option value="10" selected>10 years</option>
+              </select>
+            </label>
+            <label>
+              <span>Short-rate proxy tenor</span>
+              <select id="shortRateTenor">
+                <option value="1M">1M</option>
+                <option value="3M" selected>3M</option>
+                <option value="6M">6M</option>
+                <option value="1Y">1Y</option>
+              </select>
+            </label>
+            <label>
+              <span>Optimization</span>
+              <select id="optimizationMode">
+                <option value="fast" selected>Fast</option>
+                <option value="accurate">Accurate</option>
+              </select>
+            </label>
+          </div>
+          <div>
+            <h3>Simulation</h3>
+            <label>
+              <span>Monte Carlo paths</span>
+              <input id="mcPaths" type="number" min="250" step="250" placeholder="auto" />
+            </label>
+            <label>
+              <span>Random seed</span>
+              <input id="randomSeed" type="number" min="1" step="1" placeholder="optional" />
+            </label>
+            <label class="checkbox-row">
+              <input id="allowFredFallback" type="checkbox" checked />
+              <span>Allow FRED fallback</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="cacheEnabled" type="checkbox" checked />
+              <span>Use local cache</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tabs card">
+      <div class="tab-row">
+        <button class="tab-button active" data-tab="overview">Overview</button>
+        <button class="tab-button" data-tab="curve">Curve Explorer</button>
+        <button class="tab-button advanced-only hidden" data-tab="scenario">Scenario</button>
+        <button class="tab-button advanced-only hidden" data-tab="diagnostics">Diagnostics</button>
+        <button class="tab-button advanced-only hidden" data-tab="data-cache">Data &amp; Cache</button>
+      </div>
+
+      <div id="tab-overview" class="tab-panel active">
+        <div class="card-grid three-up">
+          <div class="metric-card">
+            <h3>Prediction</h3>
+            <div id="predictionCardValue" class="metric-value">-</div>
+            <div id="predictionCardChange" class="metric-subtext">Run the model to see a forecast.</div>
+          </div>
+          <div class="metric-card">
+            <h3>Confidence</h3>
+            <div id="confidenceLabel" class="metric-value">-</div>
+            <div id="confidenceRange" class="metric-subtext">-</div>
+          </div>
+          <div class="metric-card">
+            <h3>Data health</h3>
+            <div id="dataHealthSource" class="metric-value small">-</div>
+            <div id="dataHealthInfo" class="metric-subtext">-</div>
+          </div>
+        </div>
+
+        <div class="split-layout">
+          <div>
+            <h3>History and forecast</h3>
+            <div id="overviewChart" class="chart-box"></div>
+          </div>
+          <div>
+            <h3>What's driving it</h3>
+            <div id="topDrivers" class="stack-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-curve" class="tab-panel">
+        <div class="curve-controls">
+          <div class="segmented-control" id="curveTypeSwitch">
+            <button data-curve-type="par">Par</button>
+            <button data-curve-type="zero" class="active">Zero</button>
+            <button data-curve-type="forward">Forward</button>
+          </div>
+          <div id="tenorChips" class="tenor-chip-row"></div>
+          <div class="checkbox-cluster">
+            <label class="checkbox-row"><input id="showMarketCurve" type="checkbox" checked /><span>Market</span></label>
+            <label class="checkbox-row"><input id="showEnsembleCurve" type="checkbox" checked /><span>Ensemble</span></label>
+            <label class="checkbox-row"><input id="showModelCurves" type="checkbox" /><span>Show models...</span></label>
+          </div>
+        </div>
+        <div id="curveChart" class="chart-box tall"></div>
+      </div>
+
+      <div id="tab-scenario" class="tab-panel advanced-only hidden">
+        <div class="split-layout">
+          <div>
+            <h3>Shock builder</h3>
+            <div class="scenario-presets">
+              <label><input type="radio" name="scenarioPreset" value="parallel_25bp" checked /> Parallel +25bp</label>
+              <label><input type="radio" name="scenarioPreset" value="steepen" /> Steepen</label>
+              <label><input type="radio" name="scenarioPreset" value="flatten" /> Flatten</label>
+              <label><input type="radio" name="scenarioPreset" value="custom" /> Custom</label>
+            </div>
+            <div class="slider-group">
+              <label>
+                <span>Short-end shock (bp)</span>
+                <input id="shortShock" type="range" min="-100" max="100" step="5" value="0" />
+                <strong id="shortShockValue">0</strong>
+              </label>
+              <label>
+                <span>Long-end shock (bp)</span>
+                <input id="longShock" type="range" min="-100" max="100" step="5" value="0" />
+                <strong id="longShockValue">0</strong>
+              </label>
+            </div>
+            <button id="applyScenario" class="secondary-button">Apply scenario</button>
+          </div>
+          <div>
+            <h3>Scenario overlay</h3>
+            <div id="scenarioChart" class="chart-box"></div>
+          </div>
+        </div>
+        <div>
+          <h3>Delta by tenor</h3>
+          <div id="scenarioTable" class="table-box"></div>
+        </div>
+      </div>
+
+      <div id="tab-diagnostics" class="tab-panel advanced-only hidden">
+        <div class="split-layout">
+          <div>
+            <h3>Ensemble health</h3>
+            <div id="weightsTable" class="table-box"></div>
+            <div id="rollingErrorChart" class="chart-box"></div>
+          </div>
+          <div>
+            <h3>Per-model detail</h3>
+            <div id="modelAccordions" class="accordion-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-data-cache" class="tab-panel advanced-only hidden">
+        <div class="toolbar-row">
+          <button id="refreshNow" class="secondary-button">Refresh now</button>
+          <button id="clearCache" class="secondary-button danger">Clear cache</button>
+          <label class="checkbox-row">
+            <input id="allowFredFallbackCacheTab" type="checkbox" checked />
+            <span>Allow FRED fallback</span>
+          </label>
+        </div>
+        <div class="card-grid two-up">
+          <div class="metric-card">
+            <h3>Cache</h3>
+            <div id="cacheDir" class="metric-subtext mono">-</div>
+          </div>
+          <div class="metric-card">
+            <h3>Source status</h3>
+            <div id="sourceStatus" class="metric-subtext">-</div>
+          </div>
+        </div>
+        <div>
+          <h3>Last 10 fetch logs</h3>
+          <div id="fetchLogs" class="table-box"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

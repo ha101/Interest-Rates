@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "interest-rate-meta-model-dashboard"
+version = "0.1.0"
+description = "Interest-rate model ensemble with government data loaders and a browser dashboard"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "jinja2",
+  "numpy",
+  "pandas",
+  "requests",
+  "scipy",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["interest_rate_meta_model*"]
+
+[tool.setuptools.package-data]
+interest_rate_meta_model = ["templates/*.html", "static/*.css", "static/*.js"]
