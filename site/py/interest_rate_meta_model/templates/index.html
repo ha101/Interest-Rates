@@ -7,6 +7,9 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+  <div id="rerunProgress" class="rerun-progress hidden" aria-hidden="true" role="status" aria-live="polite" aria-label="Forecast rerun in progress">
+    <div id="rerunProgressBar" class="rerun-progress-bar"></div>
+  </div>
   <div class="page-shell">
     <header class="hero">
       <div>
@@ -182,6 +185,10 @@
         <div class="split-layout">
           <div>
             <h3>History and forecast</h3>
+            <div class="chart-toolbar">
+              <span class="chart-toolbar-label">Forecast horizon</span>
+              <div id="horizonQuickButtons" class="segmented-control compact"></div>
+            </div>
             <div id="overviewChart" class="chart-box"></div>
           </div>
           <div>
@@ -244,6 +251,9 @@
       </div>
 
       <div id="tab-diagnostics" class="tab-panel advanced-only hidden">
+        <p id="diagnosticsHelp" class="panel-note">
+          Diagnostics summarize each model's historical one-step error and its fit to today's curve. Similar historical RMSE values can happen when models explain short-rate increments similarly; weights also use curve fit and model traits.
+        </p>
         <div class="split-layout">
           <div>
             <h3>Ensemble health</h3>

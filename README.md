@@ -85,25 +85,30 @@ This repo supports a **no-backend** deployment pattern suitable for **GitHub Pag
   - SOFR and EFFR from official New York Fed endpoints,
   - optional FRED fallback.
 - The Action writes normalized JSON into `site/data/` and commits it back to the repo.
+- A deploy GitHub Action (`.github/workflows/deploy_pages.yml`) publishes `site/` to GitHub Pages.
 - GitHub Pages serves `site/` (UI + JSON) from the **same origin**, avoiding CORS and avoiding exposing API keys.
 - The browser runs the model engine using **Pyodide** (`site/py/*` + `site/static/app.js`).
 
 ### Enable Pages mode
 
 1. In GitHub repo settings:
-   - Pages → Build and deployment → Source: **Deploy from a branch**
-   - Branch: `main` (or your default), folder: `/site`
+   - Pages → Build and deployment → Source: **GitHub Actions**
+   - Actions → General → Workflow permissions: **Read and write permissions**
 
 2. Trigger the workflow:
    - Actions → “Prefetch rate data for Pages” → Run workflow
 
-3. Verify `site/data/` contains:
+3. Verify both workflows complete:
+   - “Prefetch rate data for Pages”
+   - “Deploy GitHub Pages”
+
+4. Verify `site/data/` contains:
    - `treasury_par_history.json`
    - `ref_rates.json`
    - `models.json`
    - `status.json`
 
-4. Open your Pages URL and click **Run**.
+5. Open your Pages URL and click **Run**.
 
 ### Local preflight
 

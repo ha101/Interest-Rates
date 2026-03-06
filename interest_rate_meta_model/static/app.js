@@ -6,10 +6,18 @@ const state = {
   curveType: 'zero',
   curveSelection: { market: true, ensemble: true, models: false },
   selectedTenorIndex: null,
+  running: false,
+  runCounter: 0,
+  pendingRun: null,
+  autoRunTimer: null,
   advancedDrawerOpen: true,
+  runProgressTimer: null,
+  runProgressHideTimer: null,
+  runProgressValue: 0,
 };
 
 const palette = ['#1b5cff', '#0f8a5f', '#ef6820', '#7a5af8', '#06aed5', '#f04438', '#5c6c80', '#ca8504'];
+const HORIZON_LABELS = { '1d': '1D', '1w': '1W', '1m': '1M', '3m': '3M', '1y': '1Y' };
 
 function $(id) {
   return document.getElementById(id);
@@ -24,6 +32,19 @@ function formatBps(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return '-';
   const sign = value > 0 ? '+' : '';
   return `${sign}${value.toFixed(1)} bp`;
+}
+
+function formatMaturityTick(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  if (num < 1.0) {
+    const months = Math.round(num * 12);
+    return `${months}M`;
+  }
+  if (Math.abs(num - Math.round(num)) < 1e-9) {
+    return `${Math.round(num)}Y`;
+  }
+  return `${num.toFixed(1)}Y`;
 }
 
 function escapeHtml(value) {
@@ -110,8 +131,134 @@ function setStatus(text, kind = 'muted') {
   pill.className = `status-pill ${kind === 'muted' ? 'muted' : ''}`;
 }
 
+function setRunControlsDisabled(disabled) {
+  const runButton = $('runButton');
+  if (runButton) {
+    runButton.disabled = disabled;
+    runButton.textContent = disabled ? 'Running...' : 'Run';
+  }
+  const refreshButton = $('refreshNow');
+  if (refreshButton) {
+    refreshButton.disabled = disabled;
+  }
+}
+
+function startRunProgress() {
+  const shell = $('rerunProgress');
+  const bar = $('rerunProgressBar');
+  if (!shell || !bar) return;
+
+  const wasFinishing = state.runProgressHideTimer !== null;
+  if (state.runProgressHideTimer !== null) {
+    clearTimeout(state.runProgressHideTimer);
+    state.runProgressHideTimer = null;
+  }
+
+  if (!shell.classList.contains('visible') || wasFinishing || state.runProgressValue >= 95) {
+    state.runProgressValue = 10;
+    bar.style.width = `${state.runProgressValue}%`;
+    shell.classList.remove('hidden');
+    shell.classList.add('visible');
+    shell.setAttribute('aria-hidden', 'false');
+  } else {
+    state.runProgressValue = Math.max(state.runProgressValue, 18);
+    bar.style.width = `${state.runProgressValue}%`;
+  }
+
+  if (state.runProgressTimer !== null) return;
+  state.runProgressTimer = window.setInterval(() => {
+    const remaining = 94 - state.runProgressValue;
+    if (remaining <= 0) {
+      clearInterval(state.runProgressTimer);
+      state.runProgressTimer = null;
+      return;
+    }
+    const increment = state.runProgressValue < 40 ? 7 : state.runProgressValue < 70 ? 3 : 1;
+    state.runProgressValue = Math.min(94, state.runProgressValue + increment);
+    bar.style.width = `${state.runProgressValue}%`;
+  }, 170);
+}
+
+function finishRunProgress() {
+  const shell = $('rerunProgress');
+  const bar = $('rerunProgressBar');
+  if (!shell || !bar) return;
+
+  if (state.runProgressTimer !== null) {
+    clearInterval(state.runProgressTimer);
+    state.runProgressTimer = null;
+  }
+  if (state.runProgressHideTimer !== null) {
+    clearTimeout(state.runProgressHideTimer);
+    state.runProgressHideTimer = null;
+  }
+
+  state.runProgressValue = 100;
+  bar.style.width = '100%';
+  state.runProgressHideTimer = window.setTimeout(() => {
+    shell.classList.remove('visible');
+    shell.classList.add('hidden');
+    shell.setAttribute('aria-hidden', 'true');
+    bar.style.width = '0%';
+    state.runProgressValue = 0;
+    state.runProgressHideTimer = null;
+  }, 220);
+}
+
+function renderHorizonQuickButtons() {
+  const container = $('horizonQuickButtons');
+  if (!container) return;
+  const current = $('horizon').value;
+  container.innerHTML = '';
+  Object.entries(HORIZON_LABELS).forEach(([value, label]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.classList.toggle('active', value === current);
+    button.addEventListener('click', () => {
+      if ($('horizon').value === value && state.result) return;
+      $('horizon').value = value;
+      renderHorizonQuickButtons();
+      scheduleAutoRun('horizon');
+    });
+    container.appendChild(button);
+  });
+}
+
+function scheduleAutoRun(reason = 'control') {
+  syncUrl();
+  if (state.autoRunTimer !== null) {
+    clearTimeout(state.autoRunTimer);
+    state.autoRunTimer = null;
+  }
+  state.autoRunTimer = window.setTimeout(() => {
+    state.autoRunTimer = null;
+    runDashboard(false, reason);
+  }, 220);
+}
+
+function queuePendingRun(forceRefresh, reason) {
+  const nextForceRefresh = Boolean(forceRefresh);
+  if (!state.pendingRun) {
+    state.pendingRun = { forceRefresh: nextForceRefresh, reason };
+    return;
+  }
+  const mergedForceRefresh = Boolean(state.pendingRun.forceRefresh || nextForceRefresh);
+  let mergedReason = reason || state.pendingRun.reason;
+  if (mergedForceRefresh && (state.pendingRun.reason === 'refresh' || reason === 'refresh')) {
+    mergedReason = 'refresh';
+  }
+  state.pendingRun = { forceRefresh: mergedForceRefresh, reason: mergedReason };
+}
+
 function getSelectedModels() {
   return Array.from(document.querySelectorAll('#modelChecklist input[type="checkbox"]:checked')).map((el) => el.value);
+}
+
+function modelLabel(modelName) {
+  const rows = state.modelsMeta?.models || [];
+  const hit = rows.find((row) => row?.name === modelName);
+  return hit?.label || modelName;
 }
 
 function gatherRunPayload(forceRefresh = false) {
@@ -144,7 +291,14 @@ function renderModelChecklist(meta) {
       <input type="checkbox" value="${escapeHtml(model.name)}" ${recommended.has(model.name) ? 'checked' : ''} />
       <span><strong>${escapeHtml(model.label)}</strong> - ${escapeHtml(model.short_description)}</span>
     `;
-    row.querySelector('input').addEventListener('change', syncUrl);
+    row.querySelector('input').addEventListener('change', (event) => {
+      if (!getSelectedModels().length) {
+        event.target.checked = true;
+        alert('At least one model must remain selected.');
+        return;
+      }
+      scheduleAutoRun('models');
+    });
     container.appendChild(row);
   });
 }
@@ -230,7 +384,7 @@ function renderCurveChart(container, market, ensemble, curveType, selection, mod
     });
   }
   renderLineChart(container, series, {
-    xFormatter: (value) => `${value}y`,
+    xFormatter: formatMaturityTick,
     yFormatter: formatPct,
     xType: 'numeric',
     highlightX: tenorHighlight?.maturity ?? null,
@@ -270,10 +424,28 @@ function renderCurveExplorer(result) {
 
 function renderWeightsTable(result) {
   const rows = result.diagnostics.ensemble_health.weights || [];
-  $('weightsTable').innerHTML = makeTable(
-    ['Model', 'Weight', 'Hist RMSE (bp)', 'Curve RMSE (bp)'],
-    rows.map((row) => [row.model, `${(row.weight * 100).toFixed(1)}%`, (row.historical_rmse * 10000).toFixed(1), Number.isFinite(row.curve_rmse) ? (row.curve_rmse * 10000).toFixed(1) : '-'])
+  const histBps = rows
+    .map((row) => Number(row.historical_rmse) * 10000)
+    .filter((value) => Number.isFinite(value));
+  const histSpread = histBps.length ? Math.max(...histBps) - Math.min(...histBps) : null;
+  const tableHtml = makeTable(
+    [
+      { label: 'Model', help: 'Short-rate model included in the current ensemble run.' },
+      { label: 'Weight', help: 'Current ensemble contribution after combining performance, curve fit, and model traits.' },
+      { label: 'Backtest 1-step RMSE (bp)', help: 'One-step-ahead error on historical short-rate data. Lower is better.' },
+      { label: 'As-of Curve RMSE (bp)', help: "Fit error to today's Treasury zero curve. Lower is better." },
+    ],
+    rows.map((row) => [
+      modelLabel(row.model),
+      `${(row.weight * 100).toFixed(1)}%`,
+      Number.isFinite(row.historical_rmse) ? (row.historical_rmse * 10000).toFixed(2) : '-',
+      Number.isFinite(row.curve_rmse) ? (row.curve_rmse * 10000).toFixed(2) : '-',
+    ])
   );
+  const spreadText = histSpread == null
+    ? ''
+    : `<div class="table-note">Backtest RMSE spread across models: ${histSpread.toFixed(2)} bp. If this spread is small, identical-looking values are usually a display-rounding effect.</div>`;
+  $('weightsTable').innerHTML = `${tableHtml}${spreadText}`;
 }
 
 function renderRollingErrorChart(result) {
@@ -297,7 +469,7 @@ function renderModelAccordions(result) {
       <div class="accordion-header">
         <div>
           <strong>${escapeHtml(model.label)} <span class="badge">${(model.weight * 100).toFixed(1)}%</span></strong>
-          <div class="metric-subtext">Curve fit: ${model.curve_fit_rmse_bps == null ? '-' : model.curve_fit_rmse_bps.toFixed(1) + ' bp'} | Forecast error: ${model.forecast_rmse_bps.toFixed(1)} bp</div>
+          <div class="metric-subtext">As-of curve RMSE: ${model.curve_fit_rmse_bps == null ? '-' : model.curve_fit_rmse_bps.toFixed(2) + ' bp'} | Backtest 1-step RMSE: ${model.forecast_rmse_bps.toFixed(2)} bp</div>
         </div>
         <div class="metric-subtext">Details</div>
       </div>
@@ -321,7 +493,17 @@ function renderDataCache(result) {
 }
 
 function makeTable(headers, rows) {
-  const thead = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('');
+  const thead = headers.map((h) => {
+    if (typeof h === 'string') {
+      return `<th>${escapeHtml(h)}</th>`;
+    }
+    const label = escapeHtml(h?.label ?? '');
+    const help = h?.help ? escapeHtml(h.help) : '';
+    if (!help) {
+      return `<th>${label}</th>`;
+    }
+    return `<th><span class="th-wrap">${label}<button type="button" class="help-tip" title="${help}" aria-label="${help}">i</button></span></th>`;
+  }).join('');
   const tbody = rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
   return `<table class="simple-table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
 }
@@ -329,7 +511,7 @@ function makeTable(headers, rows) {
 function renderScenarioTable(result) {
   $('scenarioTable').innerHTML = makeTable(
     ['Tenor', 'Delta (bp)'],
-    (result.deltas_bps || []).map((row) => [String(row.maturity), row.delta_bps.toFixed(1)])
+    (result.deltas_bps || []).map((row) => [formatMaturityTick(row.maturity), row.delta_bps.toFixed(1)])
   );
 }
 
@@ -341,7 +523,7 @@ function renderScenarioChart(result) {
     { name: 'Base', color: palette[0], values: base.maturities.map((x, i) => ({ x, y: base[curveType][i] })) },
     { name: 'Shocked', color: palette[5], values: shocked.maturities.map((x, i) => ({ x, y: shocked[curveType][i] })) },
   ];
-  renderLineChart($('scenarioChart'), series, { xFormatter: (value) => `${value}y`, yFormatter: formatPct, xType: 'numeric' });
+  renderLineChart($('scenarioChart'), series, { xFormatter: formatMaturityTick, yFormatter: formatPct, xType: 'numeric' });
 }
 
 function renderLineChart(container, series, options = {}) {
@@ -373,6 +555,15 @@ function renderLineChart(container, series, options = {}) {
   const yMax = yMaxRaw + yPad;
   const xScale = (x) => margin.left + ((x - xMin) / Math.max(xMax - xMin || 1, 1e-9)) * (width - margin.left - margin.right);
   const yScale = (y) => height - margin.bottom - ((y - yMin) / Math.max(yMax - yMin || 1, 1e-9)) * (height - margin.top - margin.bottom);
+  const normalizedSeries = series.map((s) => ({
+    name: s.name,
+    color: s.color,
+    points: s.values
+      .map((p) => ({ x: normalizeX(p.x, options.xType), y: Number(p.y) }))
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      .sort((a, b) => a.x - b.x),
+  }));
+  const xCandidates = Array.from(new Set(normalizedSeries.flatMap((s) => s.points.map((p) => p.x)))).sort((a, b) => a - b);
 
   const axisTicks = 4;
   const yTicks = Array.from({ length: axisTicks + 1 }, (_, i) => yMin + (i / axisTicks) * (yMax - yMin));
@@ -424,8 +615,181 @@ function renderLineChart(container, series, options = {}) {
     });
   }
 
+  svg += '<g class="hover-layer"></g>';
   svg += '</svg>';
   container.innerHTML = `${legendHtml}${svg}`;
+
+  const svgEl = container.querySelector('.svg-chart');
+  const hoverLayer = container.querySelector('.hover-layer');
+  if (!svgEl || !hoverLayer || !xCandidates.length) return;
+
+  const nearestValue = (sortedValues, target) => {
+    if (!sortedValues.length) return null;
+    let lo = 0;
+    let hi = sortedValues.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (sortedValues[mid] < target) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    if (lo <= 0) return sortedValues[0];
+    if (lo >= sortedValues.length) return sortedValues[sortedValues.length - 1];
+    return Math.abs(sortedValues[lo] - target) < Math.abs(sortedValues[lo - 1] - target) ? sortedValues[lo] : sortedValues[lo - 1];
+  };
+
+  const interpolateYAtX = (points, targetX) => {
+    if (!points.length) return null;
+    if (targetX < points[0].x || targetX > points[points.length - 1].x) return null;
+    let lo = 0;
+    let hi = points.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const midX = points[mid].x;
+      if (midX === targetX) return points[mid].y;
+      if (midX < targetX) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const right = Math.min(lo, points.length - 1);
+    const left = Math.max(0, right - 1);
+    const p0 = points[left];
+    const p1 = points[right];
+    if (!p0 || !p1) return null;
+    if (p1.x === p0.x) return p1.y;
+    const t = (targetX - p0.x) / (p1.x - p0.x);
+    return p0.y + t * (p1.y - p0.y);
+  };
+
+  const xLabelFor = (normalizedX) => {
+    const denorm = denormalizeX(normalizedX, options.xType);
+    return options.xFormatter ? options.xFormatter(denorm) : formatXTick(normalizedX, options.xType);
+  };
+
+  const clearHover = () => {
+    hoverLayer.innerHTML = '';
+  };
+
+  const renderHoverAtClientX = (clientX) => {
+    const rect = svgEl.getBoundingClientRect();
+    if (!rect.width) return;
+    const localX = ((clientX - rect.left) / rect.width) * width;
+    if (!Number.isFinite(localX)) return;
+    const plotLeft = margin.left;
+    const plotRight = width - margin.right;
+    if (localX < plotLeft || localX > plotRight) {
+      clearHover();
+      return;
+    }
+
+    const unsnapped = xMin + ((localX - plotLeft) / Math.max(plotRight - plotLeft, 1e-9)) * (xMax - xMin);
+    const snappedX = nearestValue(xCandidates, unsnapped);
+    if (!Number.isFinite(snappedX)) {
+      clearHover();
+      return;
+    }
+
+    const hoverPoints = normalizedSeries
+      .map((s) => {
+        const y = interpolateYAtX(s.points, snappedX);
+        if (!Number.isFinite(y)) return null;
+        return { name: s.name, color: s.color, y, screenY: yScale(y) };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.screenY - b.screenY);
+
+    if (!hoverPoints.length) {
+      clearHover();
+      return;
+    }
+
+    const clusters = [];
+    const clusterThresholdPx = 14;
+    hoverPoints.forEach((point) => {
+      if (!clusters.length) {
+        clusters.push({ points: [point], centerY: point.screenY });
+        return;
+      }
+      const last = clusters[clusters.length - 1];
+      if (Math.abs(point.screenY - last.centerY) <= clusterThresholdPx) {
+        last.points.push(point);
+        last.centerY = last.points.reduce((sum, p) => sum + p.screenY, 0) / last.points.length;
+      } else {
+        clusters.push({ points: [point], centerY: point.screenY });
+      }
+    });
+
+    const xPos = xScale(snappedX);
+    const preferRight = xPos < width * 0.62;
+    const topBound = margin.top + 2;
+    const bottomBound = height - margin.bottom - 2;
+    const labels = clusters.map((cluster) => {
+      const header = String(xLabelFor(snappedX));
+      const lines = cluster.points.map((p) => ({
+        text: `${p.name}: ${options.yFormatter ? options.yFormatter(p.y) : p.y.toFixed(4)}`,
+        color: p.color,
+      }));
+      const maxChars = Math.max(header.length, ...lines.map((l) => l.text.length));
+      const boxWidth = Math.min(290, Math.max(140, 16 + maxChars * 6.6));
+      const boxHeight = 12 + 14 + lines.length * 14;
+      const boxX = preferRight
+        ? Math.min(width - margin.right - boxWidth - 4, xPos + 10)
+        : Math.max(margin.left + 4, xPos - boxWidth - 10);
+      const rawY = cluster.centerY - boxHeight / 2;
+      return {
+        x: boxX,
+        y: Math.max(topBound, Math.min(bottomBound - boxHeight, rawY)),
+        w: boxWidth,
+        h: boxHeight,
+        header,
+        lines,
+      };
+    }).sort((a, b) => a.y - b.y);
+
+    for (let i = 1; i < labels.length; i += 1) {
+      labels[i].y = Math.max(labels[i].y, labels[i - 1].y + labels[i - 1].h + 4);
+    }
+    if (labels.length) {
+      const overflow = labels[labels.length - 1].y + labels[labels.length - 1].h - bottomBound;
+      if (overflow > 0) {
+        labels.forEach((label) => {
+          label.y -= overflow;
+        });
+      }
+      if (labels[0].y < topBound) {
+        const underflow = topBound - labels[0].y;
+        labels.forEach((label) => {
+          label.y += underflow;
+        });
+      }
+    }
+
+    let hoverSvg = '';
+    hoverSvg += `<line x1="${xPos}" y1="${margin.top}" x2="${xPos}" y2="${height - margin.bottom}" stroke="#475467" stroke-dasharray="3 4" stroke-width="1.2"></line>`;
+    hoverPoints.forEach((point) => {
+      hoverSvg += `<circle cx="${xPos}" cy="${point.screenY}" r="4.2" fill="#ffffff" stroke="${point.color}" stroke-width="2"></circle>`;
+    });
+    labels.forEach((label) => {
+      hoverSvg += `<rect x="${label.x}" y="${label.y}" width="${label.w}" height="${label.h}" rx="8" fill="rgba(255,255,255,0.96)" stroke="#d8e0ea"></rect>`;
+      let textY = label.y + 14;
+      hoverSvg += `<text x="${label.x + 8}" y="${textY}" font-size="11" font-weight="600" fill="#344054">${escapeHtml(label.header)}</text>`;
+      label.lines.forEach((line) => {
+        textY += 14;
+        hoverSvg += `<text x="${label.x + 8}" y="${textY}" font-size="11" fill="${line.color}">${escapeHtml(line.text)}</text>`;
+      });
+    });
+    hoverLayer.innerHTML = hoverSvg;
+  };
+
+  svgEl.addEventListener('mousemove', (event) => renderHoverAtClientX(event.clientX));
+  svgEl.addEventListener('mouseleave', clearHover);
+  svgEl.addEventListener('touchstart', (event) => {
+    if (!event.touches || !event.touches.length) return;
+    renderHoverAtClientX(event.touches[0].clientX);
+  }, { passive: true });
+  svgEl.addEventListener('touchmove', (event) => {
+    if (!event.touches || !event.touches.length) return;
+    renderHoverAtClientX(event.touches[0].clientX);
+  }, { passive: true });
+  svgEl.addEventListener('touchend', clearHover);
 }
 
 function formatXTick(value, type) {
@@ -454,17 +818,57 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-async function runDashboard(forceRefresh = false) {
-  setStatus('Running...', 'muted');
+async function runDashboard(forceRefresh = false, reason = 'manual') {
+  if (state.autoRunTimer !== null) {
+    clearTimeout(state.autoRunTimer);
+    state.autoRunTimer = null;
+  }
+  if (state.running) {
+    queuePendingRun(forceRefresh, reason);
+    return;
+  }
+  if (!getSelectedModels().length) {
+    setStatus('Select at least one model', 'muted');
+    alert('Select at least one model before running.');
+    return;
+  }
+  const runId = ++state.runCounter;
+  state.running = true;
+  setRunControlsDisabled(true);
+  startRunProgress();
+  const horizonLabel = HORIZON_LABELS[$('horizon').value] || $('horizon').value;
+  const statusByReason = {
+    horizon: `Running ${horizonLabel} forecast...`,
+    models: 'Updating model weights...',
+    refresh: 'Refreshing data and rerunning...',
+    startup: 'Running initial forecast...',
+    manual: 'Running...',
+  };
+  setStatus(statusByReason[reason] || 'Running...', 'muted');
   syncUrl();
   try {
     const result = await apiFetch('/run', { method: 'POST', body: JSON.stringify(gatherRunPayload(forceRefresh)) });
+    if (runId !== state.runCounter) return;
     state.result = result;
     setStatus(result.status.pill, 'ok');
     renderResult();
   } catch (error) {
+    if (runId !== state.runCounter) return;
     setStatus('Run failed', 'muted');
     alert(error.message);
+  } finally {
+    if (runId === state.runCounter) {
+      state.running = false;
+      setRunControlsDisabled(false);
+      renderHorizonQuickButtons();
+      if (state.pendingRun) {
+        const nextRun = state.pendingRun;
+        state.pendingRun = null;
+        runDashboard(nextRun.forceRefresh, nextRun.reason);
+      } else {
+        finishRunProgress();
+      }
+    }
   }
 }
 
@@ -554,8 +958,14 @@ function handleDownload(kind) {
 }
 
 function wireEvents() {
-  $('runButton').addEventListener('click', () => runDashboard(false));
-  $('refreshNow').addEventListener('click', () => runDashboard(true));
+  $('runButton').addEventListener('click', () => {
+    if (state.autoRunTimer !== null) {
+      clearTimeout(state.autoRunTimer);
+      state.autoRunTimer = null;
+    }
+    runDashboard(false, 'manual');
+  });
+  $('refreshNow').addEventListener('click', () => runDashboard(true, 'refresh'));
   $('modeToggle').addEventListener('change', (event) => setAdvancedMode(event.target.checked));
   $('advancedDrawerToggle').addEventListener('click', () => {
     state.advancedDrawerOpen = !state.advancedDrawerOpen;
@@ -590,6 +1000,10 @@ function wireEvents() {
   $('showMarketCurve').addEventListener('change', (e) => { state.curveSelection.market = e.target.checked; if (state.result) renderCurveExplorer(state.result); });
   $('showEnsembleCurve').addEventListener('change', (e) => { state.curveSelection.ensemble = e.target.checked; if (state.result) renderCurveExplorer(state.result); });
   $('showModelCurves').addEventListener('change', (e) => { state.curveSelection.models = e.target.checked; if (state.result) renderCurveExplorer(state.result); });
+  $('horizon').addEventListener('change', () => {
+    renderHorizonQuickButtons();
+    scheduleAutoRun('horizon');
+  });
   document.querySelectorAll('input[name="scenarioPreset"]').forEach((input) => input.addEventListener('change', applyScenario));
   $('shortShock').addEventListener('input', (e) => { $('shortShockValue').textContent = e.target.value; if (document.querySelector('input[name="scenarioPreset"]:checked').value === 'custom') applyScenario(); });
   $('longShock').addEventListener('input', (e) => { $('longShockValue').textContent = e.target.value; if (document.querySelector('input[name="scenarioPreset"]:checked').value === 'custom') applyScenario(); });
@@ -598,11 +1012,11 @@ function wireEvents() {
     if (!confirm('Clear the local cache?')) return;
     await apiFetch('/cache/clear', { method: 'POST', body: JSON.stringify({}) });
     await refreshSourcesStatus();
-    if (state.result) await runDashboard(false);
+    if (state.result) await runDashboard(false, 'refresh');
   });
   $('allowFredFallback').addEventListener('change', (e) => { $('allowFredFallbackCacheTab').checked = e.target.checked; syncUrl(); });
   $('allowFredFallbackCacheTab').addEventListener('change', (e) => { $('allowFredFallback').checked = e.target.checked; syncUrl(); refreshSourcesStatus(); });
-  ['dataSource', 'asOfDate', 'horizon', 'target', 'historyYears', 'shortRateTenor', 'weightingMethod', 'optimizationMode', 'mcPaths', 'randomSeed', 'cacheEnabled'].forEach((id) => {
+  ['dataSource', 'asOfDate', 'target', 'historyYears', 'shortRateTenor', 'weightingMethod', 'optimizationMode', 'mcPaths', 'randomSeed', 'cacheEnabled'].forEach((id) => {
     $(id).addEventListener('change', syncUrl);
   });
 }
@@ -610,6 +1024,7 @@ function wireEvents() {
 async function initialize() {
   $('asOfDate').value = todayIso();
   parseQuery();
+  renderHorizonQuickButtons();
   wireEvents();
   state.modelsMeta = await apiFetch('/models');
   renderModelChecklist(state.modelsMeta);
@@ -620,7 +1035,7 @@ async function initialize() {
   setAdvancedMode($('modeToggle').checked);
   await refreshSourcesStatus();
   if (window.location.search) {
-    runDashboard(false);
+    runDashboard(false, 'startup');
   }
 }
 

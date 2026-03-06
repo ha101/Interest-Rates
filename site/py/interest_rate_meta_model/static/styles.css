@@ -20,6 +20,31 @@ body {
   color: var(--text);
 }
 
+.rerun-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: rgba(27, 92, 255, 0.14);
+  z-index: 2000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.rerun-progress.visible {
+  opacity: 1;
+}
+
+.rerun-progress-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #1b5cff 0%, #06aed5 100%);
+  box-shadow: 0 0 8px rgba(27, 92, 255, 0.45);
+  transition: width 0.18s linear;
+}
+
 .page-shell {
   max-width: 1440px;
   margin: 0 auto;
@@ -334,6 +359,23 @@ input[type="range"] {
   line-height: 1.5;
 }
 
+.panel-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #3f4f64;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.table-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .metric-subtext.mono,
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -343,6 +385,22 @@ input[type="range"] {
   display: grid;
   grid-template-columns: 1.8fr 1fr;
   gap: 18px;
+}
+
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.chart-toolbar-label {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .chart-box,
@@ -398,6 +456,16 @@ input[type="range"] {
   padding: 10px 14px;
   background: white;
   cursor: pointer;
+}
+
+.segmented-control.compact button {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+.segmented-control button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .segmented-control button.active {
@@ -501,6 +569,7 @@ input[type="range"] {
 .svg-chart {
   width: 100%;
   height: 100%;
+  cursor: crosshair;
 }
 
 .legend-row {
