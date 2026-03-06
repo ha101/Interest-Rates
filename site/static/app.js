@@ -132,6 +132,7 @@ const state = {
   result: null,
   curveType: 'zero',
   curveSelection: { market: true, ensemble: true, models: false },
+  selectedTenorIndex: null,
   advancedDrawerOpen: true,
 };
 
@@ -382,7 +383,7 @@ function renderOverviewChart(result) {
   renderLineChart($('overviewChart'), series, { yFormatter: formatPct });
 }
 
-function renderCurveChart(container, market, ensemble, curveType, selection, modelCurves) {
+function renderCurveChart(container, market, ensemble, curveType, selection, modelCurves, tenorHighlight = null) {
   const series = [];
   if (selection.market) {
     series.push({ name: 'Market', color: palette[0], values: market.maturities.map((x, i) => ({ x, y: market[curveType][i] })) });
@@ -395,7 +396,13 @@ function renderCurveChart(container, market, ensemble, curveType, selection, mod
       series.push({ name, color: palette[(idx + 2) % palette.length], values: bundle.maturities.map((x, i) => ({ x, y: bundle[curveType][i] })) });
     });
   }
-  renderLineChart(container, series, { xFormatter: (value) => `${value}y`, yFormatter: formatPct, xType: 'numeric' });
+  renderLineChart(container, series, {
+    xFormatter: (value) => `${value}y`,
+    yFormatter: formatPct,
+    xType: 'numeric',
+    highlightX: tenorHighlight?.maturity ?? null,
+    highlightLabel: tenorHighlight?.label ?? null,
+  });
 }
 
 function renderCurveExplorer(result) {
@@ -404,13 +411,28 @@ function renderCurveExplorer(result) {
   const models = result.curve_explorer.models;
   const chips = $('tenorChips');
   chips.innerHTML = '';
-  result.curve_explorer.tenor_labels.forEach((label) => {
-    const chip = document.createElement('span');
+  result.curve_explorer.tenor_labels.forEach((label, idx) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
     chip.className = 'tenor-chip';
+    chip.classList.toggle('active', state.selectedTenorIndex === idx);
     chip.textContent = label;
+    chip.addEventListener('click', () => {
+      state.selectedTenorIndex = state.selectedTenorIndex === idx ? null : idx;
+      renderCurveExplorer(result);
+    });
     chips.appendChild(chip);
   });
-  renderCurveChart($('curveChart'), market, ensemble, state.curveType, state.curveSelection, models);
+
+  let tenorHighlight = null;
+  if (state.selectedTenorIndex != null && market?.maturities?.[state.selectedTenorIndex] != null) {
+    tenorHighlight = {
+      maturity: Number(market.maturities[state.selectedTenorIndex]),
+      label: result.curve_explorer.tenor_labels[state.selectedTenorIndex],
+    };
+  }
+
+  renderCurveChart($('curveChart'), market, ensemble, state.curveType, state.curveSelection, models, tenorHighlight);
 }
 
 function renderWeightsTable(result) {
@@ -554,6 +576,20 @@ function renderLineChart(container, series, options = {}) {
       svg += `<circle cx="${xScale(normalizeX(p.x, options.xType))}" cy="${yScale(p.y)}" r="${s.pointsOnly ? 4.5 : 3}" fill="${s.color}"></circle>`;
     });
   });
+
+  if (Number.isFinite(options.highlightX)) {
+    const hx = normalizeX(options.highlightX, options.xType);
+    const xPos = xScale(hx);
+    svg += `<line x1="${xPos}" y1="${margin.top}" x2="${xPos}" y2="${height - margin.bottom}" stroke="#344054" stroke-dasharray="4 4" stroke-width="1.2"></line>`;
+    if (options.highlightLabel) {
+      svg += `<text x="${xPos + 6}" y="${margin.top + 14}" font-size="11" fill="#344054">${escapeHtml(options.highlightLabel)}</text>`;
+    }
+    series.forEach((s) => {
+      const hit = s.values.find((p) => Math.abs(normalizeX(p.x, options.xType) - hx) < 1e-9);
+      if (!hit) return;
+      svg += `<circle cx="${xScale(normalizeX(hit.x, options.xType))}" cy="${yScale(hit.y)}" r="5.5" fill="#ffffff" stroke="${s.color}" stroke-width="2.2"></circle>`;
+    });
+  }
 
   svg += '</svg>';
   container.innerHTML = `${legendHtml}${svg}`;

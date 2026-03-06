@@ -418,6 +418,21 @@ input[type="range"] {
   padding: 8px 12px;
   background: #fff;
   font-size: 12px;
+  font: inherit;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.tenor-chip.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: #b9caff;
+  font-weight: 600;
+}
+
+.tenor-chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .checkbox-cluster {
